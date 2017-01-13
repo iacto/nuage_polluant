@@ -17,34 +17,34 @@ from scipy.stats import shapiro
 
 
 #Définitions de différents profils de vent verticaux
-def vent_constant(z, H, alpha):
+def vent_constant(z, H, alphav):
     if z > H or z < 0:
         return 0
     else:
-        return alpha
+        return alphav
 
-def vent_lineaire(z, H, alpha):
+def vent_lineaire(z, H, alphav):
     if z > H or z < 0:
         return 0
     else:
-        return alpha * z
+        return alphav * z
     
     #Création profils de vent sinusoidaux, le premier toujours positif le second selon fonction sinus       
-def vent_sin_pos(z, H, alpha): #vent uniquement positif, demie période de sinusoide
+def vent_sin_pos(z, H, alphav): #vent uniquement positif, demie période de sinusoide
     if z > H or z < 0:
         return 0
     else:
-        return alpha*np.sin(z/H*np.pi)
+        return alphav*np.sin(z/H*np.pi)
         
-def vent_sin(z, H, alpha): #sinusoide complète 
+def vent_sin(z, H, alphav): #sinusoide complète 
     if z > H or z < 0:
         return 0
     else:
-        return alpha*np.sin(z/H*2*np.pi)
+        return alphav*np.sin(z/H*2*np.pi)
     
 #Création d'une fonction vent general pouvant appliquer le profil de vent demandé par l'utilisateur
 #Chaque profil de vent est associé à un numéro qui doit etre précisé au niveau du paramètre types_vent lors de l'appel de la fonction"""
-def vent_general(z, altitudes, types_vent, alpha):
+def vent_general(z, altitudes, types_vent, alphav):
     H = altitudes[len(altitudes)-1]
     if z > H or z < 0:
         return 0
@@ -53,21 +53,36 @@ def vent_general(z, altitudes, types_vent, alpha):
         while z > altitudes[j]:
             j+=1
         if types_vent[j] == 1: 
-            return vent_constant(z, H, alpha)
+            return vent_constant(z, H, alphav[j])
         elif types_vent[j] == 2:
-            return vent_lineaire(z, H, alpha)
+            return vent_lineaire(z, H, alphav[j])
         elif types_vent[j] == 3:
-            return vent_sin_pos(z, H, alpha)
+            return vent_sin_pos(z, H, alphav[j])
         elif types_vent[j] == 4:
-            return vent_sin(z, H, alpha)
+            return vent_sin(z, H, alphav[j])
 
 #Création des coefficients de diffusion        
-def diffusion_constante(z, H, alpha):
-    return alpha
+def diffusion_constante(z, H, alphad):
+    return alphad
 
-def diffusion_sin_pos(z, H, alpha):
-    return alpha*np.sin(z/H*np.pi)
+def diffusion_sin_pos(z, H, alphad):
+    return alphad*np.sin(z/H*np.pi)
     
+def diffusion_general(z, altitudes, types_diffusion, alphad):
+    H = altitudes[len(altitudes)-1]
+    j = 0
+    if z < H:
+        while z > altitudes[j]:
+            j += 1
+        if types_diffusion[j] == 1:
+            return diffusion_constante(z,H,alphad[j])
+        if types_diffusion[j] == 2:
+            return diffusion_sin_pos(z,H,alphad[j])
+    else:
+        if types_diffusion[len(altitudes)] == 1:
+            return diffusion_constante(z,H,alphad[len(altitudes)])
+        if types_diffusion[len(altitudes)] == 2:
+            return diffusion_sin_pos(z,H,alphad[len(altitudes)])
         
 #Création du nuage 1D
     #Deux paramètres : une épaisseur, un nombre de particules
@@ -125,18 +140,18 @@ def testKS(x):
         return x
     
     #Résolution ED01 avec introduction des turbulences aléatoires afin de déterminer la position de chaque particule en t+1
-def euler_stoch(nuage, altitudes, types_vent, pas, H, alpha, d):
+def euler_stoch(nuage, altitudes, types_vent, pas, H, alphad, alphav, types_diffusion):
     n = np.zeros(len(nuage))
     g2 = generateur(len(nuage), 0, 2) 
     g = testKS(g2) #Il faut que les test de normalité soient vérifiés pour que Euler fonctionne
     for i in range(len(nuage)):
-        n[i] = nuage[i] + pas * vent_general(nuage[i], altitudes, types_vent, alpha) + d(nuage[i], H, alpha)*np.sqrt(pas)*g[i]
+        n[i] = nuage[i] + pas * vent_general(nuage[i], altitudes, types_vent, alphav) + diffusion_general(nuage[i], altitudes, types_diffusion,alphad)*np.sqrt(pas)*g[i]
         if n[i] < 0.:
             n[i] = 0.
     return n    
 
     #Etat d'un nuage à un instant T selon le profil de vent et les turbulences aléatoires  
-def progression_stoch(nuage, altitudes, types_vent, pas, alpha, T, d):    
+def progression_stoch(nuage, altitudes, types_vent, pas, alphad, alphav, T, types_diffusion):    
     m = int(T/pas)
     x = len(nuage)
     H = max(altitudes)
@@ -146,7 +161,7 @@ def progression_stoch(nuage, altitudes, types_vent, pas, alpha, T, d):
     cent_gra = np.zeros((1, m))
     re = np.linspace(0,T,m)
     for i in range(1, int(T/pas)):
-        matr[:,i] = euler_stoch(matr[:,i-1], altitudes, types_vent, pas, H, alpha, d)
+        matr[:,i] = euler_stoch(matr[:,i-1], altitudes, types_vent, pas, H, alphad, alphav, types_diffusion)
         ext_nuage[:,i] = abs(max(matr[:,i]) - min(matr[:,i])) #permet de calculer l'extension du nuage
         cent_gra[:,i] = abs(np.mean(matr[:,i])) #permet de calculer le centre de gravité du nuage
 
@@ -170,7 +185,7 @@ def progression_stoch(nuage, altitudes, types_vent, pas, alpha, T, d):
     z = np.linspace(0,H*1.1,H*10)
     vent = []
     for i in range(len(z)): #Représentation des différents profils de vent appliqués selon les couches atmosphériques
-        vent.append(vent_general(z[i], altitudes, types_vent, alpha))
+        vent.append(vent_general(z[i], altitudes, types_vent, alphav))
     plt.figure(2)
     plt.plot(vent,z)
     plt.title("Profil de vent au cours du temps")
@@ -206,47 +221,71 @@ def progression_stoch(nuage, altitudes, types_vent, pas, alpha, T, d):
 # Création de l'interface interactive
 def main():
     # Définition du types d'atmosphère
-    a = int(input("Altitude de la couche limite ? "))
-    b = int(input("Combien de couches souhaitez-vous ? "))
+    a = int(input("Altitude de la couche limite ? \n"))
+    b = int(input("Combien de couches souhaitez-vous ? \n"))
     altitudes = np.linspace(0,b-1,b)
     types_vent = np.linspace(0,b-1,b)
+    types_diffusion = np.linspace(0,b,b+1)
     test1 = -1
     test2 = -1
     alt = -2
+    test3 = -1
     for i in range(b-1):
-        print("Couche", i)
         while alt <= test1:
             print("Veuillez entrer des altitudes seuil croissantes")
-            alt = int(input("Altitude ? " ))
+            alt = int(input("Altitude supérieure de la couche %g ? \n" %(i) ))
         altitudes[i] = alt
         test1 = alt
         
         while test2 != 1 and test2 != 2 and test2 != 3 and test2 != 4:
-            print("Type de vent ? : 1 = Vent Constant , 2 = Vent Linéraire , 3 = Vent sinusoïdal positif , 4 = Vent sinusoïdal")
-            test2 = int(input("Vent ? "))
+            test2 = int(input("Vent dans la couche %g ? \n ------------------------------ \n Rappel :\n 1 = Vent Constant \n 2 = Vent Linéraire \n 3 = Vent sinusoïdal positif \n 4 = Vent sinusoïdal \n ------------------------------\n"  %(i+1)))
         types_vent[i] = test2
         test2 = -1
+        
+        while test3 != 1 and test3 !=2:
+            test3 = int(input("Diffusion dans la couche %g ? \n ------------------------------\n Rappel : \n 1 = diffusion constante \n 2 : diffusion sinusoidale positive \n ------------------------------\n" %(i+1)))
+        types_diffusion[i] = test3
+        test3 = -1        
         
     altitudes[b-1] = a
     
     while test2 != 1 and test2 != 2 and test2 != 3 and test2 != 4:
-            print("Type de vent ? : 1 = Vent Constant , 2 = Vent Linéraire , 3 = Vent sinusoïdal positif , 4 = Vent sinusoïdal")
-            test2 = int(input("Vent ? "))        
-    types_vent[b-1] = test2       
+            test2 = int(input("Vent dans la dernière couche ? \n ------------------------------\n Rappel :\n 1 = Vent Constant \n 2 = Vent Linéraire \n 3 = Vent sinusoïdal positif \n 4 = Vent sinusoïdal \n ------------------------------\n"))        
+    types_vent[b-1] = test2
     
-    print(altitudes)
-    print(types_vent)
-    alpha = float(input("Quel coefficient des vents souhaitez-vous ? "))
+    while test3 != 1 and test3 !=2:
+            test3 = int(input("Diffusion dans la dernière couche? \n ------------------------------\n Rappel : \n 1 = diffusion constante \n 2 : diffusion sinusoidale positive \n ------------------------------\n"))
+    types_diffusion[b-1] = test3
+    test3 = -1
     
+    while test3 != 1 and test3 !=2:
+            test3 = int(input("Diffusion au delà de la couche limite ? \n ------------------------------\n Rappel : \n 1 = diffusion constante \n 2 : diffusion sinusoidale positive \n ------------------------------\n"))
+    types_diffusion[b] = test3
+    
+    alphad = np.linspace(0,0,b+1)
+    d=1
+    print("Coefficient de diffusion dans la couche : ")
+    while d < b+1 :
+        alphad[d-1]=input("%g : " %(d))
+        d += 1  
+    
+    alphad[b]=input("Coefficient au delà de la couche %g :\n " %(d-1))    
+    
+    alphav = np.linspace(0,0,b)
+    d=1
+    print("Coefficient des vents dans la couche : ")
+    while d < b+1 :
+        alphav[d-1]=input("%g : " %(d))
+        d += 1
+
     #Définition du nuage initial
-    particules = int(input("De combien de particules se compose le nuage ? "))
-    epaisseur = int(input("Quelle est l'épaisseur initiale du nuage ? "))
+    particules = int(input("De combien de particules se compose le nuage ? \n"))
+    epaisseur = int(input("Quelle est l'épaisseur initiale du nuage ? \n"))
     nuage = nuage_initial(epaisseur, particules) 
     
     #Visualisation de la progression du nuage
-    pas = float(input("Pas ? "))
-    duree = int(input("Sur quelle durée souhaitez-vous observer le nuage ? "))
-    progression_stoch(nuage, altitudes, types_vent, pas, alpha, duree, diffusion_constante)
+    pas = float(input("Pas ? \n"))
+    duree = int(input("Sur quelle durée souhaitez-vous observer le nuage ? \n"))
+    progression_stoch(nuage, altitudes, types_vent, pas, alphad, alphav, duree, types_diffusion)
 
-main()     
-        
+main()
